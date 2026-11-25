@@ -68,8 +68,7 @@ export async function userInfo(e, {
 	}
 	let ck = "";
 	if (e.cookie) {
-		ck = await utils.getCookieMap(e.cookie);
-		ck = ck?.get("ltuid")
+		ck = utils.getLtuid(await utils.getCookieMap(e.cookie))
 	}
 	return await Common.render(`user/userInfo`, {
 		uid: e.user_id,
@@ -208,8 +207,13 @@ export async function mytoken(e) {
 	if (msg === "stoken") {
 		await user.getCookie(e)
 		ck = await user.getStoken(e.user_id)
-		sendMsg = `stuid=${ck.stuid};stoken=${ck.stoken};ltoken=${ck.ltoken};`;
-		if (ck?.mid) sendMsg += `mid=${ck?.mid};`
+		// 优先返回已缓存的v2 ck
+		sendMsg = ck.ck || utils.buildV2Cookie({
+			stuid: ck.stuid,
+			mid: ck.mid,
+			ltoken: ck.ltoken,
+			cookie_token: ck.cookie_token,
+		}) || `stuid=${ck.stuid};stoken=${ck.stoken};mid=${ck.mid || ''};`;
 	} else {
 		ck = await user.getyunToken(e);
 		sendMsg = `${ck.yuntoken}devId=${ck.devId}`
@@ -229,8 +233,7 @@ export async function bindLogin_ticket(e) {
 	}
 	let user = new User(e);
 	let ckMap = await utils.getCookieMap(e.original_msg.replace(/'|"/g, ""))
-	let stuid = ckMap?.get("login_uid") ? ckMap?.get("login_uid") : ckMap?.get("ltuid")
-	if (!stuid) stuid = ckMap?.get("account_id");
+	let stuid = utils.getLtuid(ckMap)
 	if (ckMap && Cfg.get("ck.sk")) {
 		let res = await user.getData("bbsStoken", {
 			loginUid: stuid,
@@ -238,6 +241,7 @@ export async function bindLogin_ticket(e) {
 		})
 		if (res?.retcode === 0) {
 			e.stuid = stuid;
+			e.sk = ckMap;
 			await user.seachUid(res)
 		}
 	}
@@ -254,23 +258,12 @@ export async function bindStoken(e, uid = '') {
 	await user.cookie(e)
 	e.uid = uid || e.uid
 	e.region = getServer(e.uid)
-	e.cks = msg.replace(/;/g, '&').replace(/stuid/, "uid")
-	e.sk = await utils.getCookieMap(msg)
-	let res = await user.getData("bbsGetCookie", { cookies: e.cks }, false)
+	let res = await user.getData("getBySToken", { token: msg.match(/stoken=([^;]+)/)?.[1] }, false)
 	if (!res?.data) {
-		e.uid = "64"
-		e.region = getServer(e.uid)
-		res = await user.getData("bbsGetCookie", { cookies: e.cks, method: 'post' }, false)
-		if (!res?.data) {
-			await e.reply(`绑定Stoken失败，异常：${res?.message}\n请发送【stoken帮助】查看配置教程重新配置~`);
-			return true;
-		} else {
-			await user.seachUid(res);
-			return true;
-		}
+		await e.reply(`绑定Stoken失败，异常：${res?.message || "换取v2 token失败"}\n请发送【stoken帮助】查看配置教程重新配置~`);
+		return true;
 	}
-	// await user.getCookie(e)
-	await user.seachUid(res);
+	await user.seachUid({ data: res.data });
 	return true;
 }
 export async function cloudToken(e) {
@@ -340,17 +333,19 @@ export async function updCookie(e) {
 			Bot.logger.mark(`[刷新ck][stoken读取]qq:${e?.user_id}；uid:${e?.uid}`)
 			continue; //奇怪的东西
 		}
-		let cookies = `uid=${stoken[item].stuid}&stoken=${stoken[item].stoken}`
-		if (stoken[item]?.mid) cookies += `&mid=${stoken[item]?.mid}`
-		let data = { cookies: cookies }
-		if (e?.uid[0] > 5) data.method = 'post'
-		let res = await user.getData("bbsGetCookie", data, false)
-		if (!res?.data) {
-			e.reply(`uid:${stoken[item].uid},请求异常：${res.message}`)
+		let tokens = await user.getV2Tokens({
+			stuid: stoken[item].stuid,
+			stoken: stoken[item].stoken,
+			mid: stoken[item].mid,
+			isOs: e.uid[0] > 5,
+		})
+		if (!tokens) {
+			e.reply(`uid:${stoken[item].uid},刷新ck异常：换取v2 token失败`)
 			continue;
 		}
-		let ck = res["data"]["cookie_token"];
-		e.msg = `ltoken=${stoken[item].ltoken};ltuid=${stoken[item].stuid};cookie_token=${ck}; account_id=${stoken[item].stuid};`
+		e.msg = tokens.v2.ck
+		// 更新stuid/mid与ck缓存，ck会在落库时由getStoken自动补全
+		Object.assign(stoken[item], { stuid: tokens.v2.stuid || stoken[item].stuid, mid: stoken[item].mid || tokens.v2.mid })
 		if (isGet) {
 			sendMsg = [...sendMsg, ...[`uid:${stoken[item].uid}`, e.msg]]
 		} else {

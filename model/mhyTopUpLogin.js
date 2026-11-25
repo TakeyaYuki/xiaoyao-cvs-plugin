@@ -64,10 +64,14 @@ export default class mysTopLogin {
             await this.e.reply("stoken获取不完整请重新扫码", true);
             return false
         }
-        let UserData =  await this.user.getData("bbsGetCookie", {cookies:`stoken=${token}&uid=${uid}&mid=${mid}`},false)
-        let stoken =`stoken=${token};stuid=${uid};mid=${mid}`
+        let tokens = await this.user.getV2Tokens({ stuid: uid, stoken: token, mid })
+        if (!tokens) {
+            await this.e.reply("获取v2 token失败请重新扫码", true);
+            return false
+        }
+        let stoken = `stoken=${token};stuid=${uid};mid=${mid}`
         return {
-            cookie: `ltoken=${token};ltuid=${uid};cookie_token=${UserData.data?.cookie_token}`,
+            cookie: tokens.v2.ck,
             stoken
         }
     }
@@ -111,13 +115,18 @@ export default class mysTopLogin {
             Bot.logger.mark(`[米哈游登录] ${Bot.logger.mark(JSON.stringify(res))}`)
         }
         if (res.retcode == 0) {
-            let cookies = `stoken=${res.data.token.token}&mid=${res.data.user_info.mid}`
-            let cookie_token = await this.user.getData("bbsGetCookie", { cookies })
-            let ltoken = await this.user.getData('getLtoken', { cookies: `${cookies}` }, false)
-            Bot.logger.mark(`[米哈游登录] ${Bot.logger.mark(JSON.stringify(cookie_token))}`)
+            let uid = res.data.user_info.aid || res.data.user_info.account_id
+            let mid = res.data.user_info.mid
+            let cookies = `stoken=${res.data.token.token}&mid=${mid}`
+            let tokens = await this.user.getV2Tokens({ stuid: uid, stoken: res.data.token.token, mid })
+            Bot.logger.mark(`[米哈游登录] ${Bot.logger.mark(JSON.stringify(tokens?.v2))}`)
+            if (!tokens) {
+                await this.e.reply(`错误：获取v2 token失败`, true)
+                return false
+            }
             return {
-                cookie: `ltoken=${ltoken?.data?.ltoken};ltuid=${res.data.user_info.aid};cookie_token=${cookie_token?.data?.cookie_token};`,
-                stoken: `${cookies.replace('&', ';')};stuid=${res.data.user_info.aid};`
+                cookie: tokens.v2.ck,
+                stoken: `${cookies.replace('&', ';')};stuid=${uid};`
             }
         } else {
             await this.e.reply(`错误：${JSON.stringify(res)}`, true)
@@ -187,7 +196,7 @@ export default class mysTopLogin {
             let device_id = utils.randomString(16)
             let region = utils.getServer(this.e.uid)
             let order = {
-                "account": ckData?.get('ltuid') || ckData?.get('account_id'),
+                "account": ckData?.get('ltuid_v2') || ckData?.get('account_id_v2') || ckData?.get('ltuid') || ckData?.get('account_id'),
                 "region": region,
                 "uid": this.e.uid,
                 "delivery_url": "",

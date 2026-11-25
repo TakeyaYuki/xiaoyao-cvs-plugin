@@ -105,11 +105,26 @@ export async function getCookieMap(cookie) {
 	let cookieArray = cookie.replace(/\s*/g, "").split(";");
 	let cookieMap = new Map();
 	for (let item of cookieArray) {
-		let entry = item.replace('=','~').split("~");
-		if (!entry[0]) continue;
-		cookieMap.set(entry[0], entry[1]);
+		// 按首个=切分，v2 token 值自身可能带=
+		let index = item.indexOf("=");
+		if (index < 1) continue;
+		cookieMap.set(item.slice(0, index), item.slice(index + 1));
 	}
 	return cookieMap || {};
+}
+
+/** 取通行证id，优先v2字段 */
+export function getLtuid(map) {
+	if (!map) return '';
+	return map.get("ltuid_v2") || map.get("account_id_v2") || map.get("ltuid") || map.get("account_id") || map.get("stuid") || '';
+}
+
+/** 由v2 token组装ck，缺失关键字段返回空串 */
+export function buildV2Cookie({ stuid, mid, ltoken, cookie_token } = {}) {
+	if (!stuid || !ltoken || !cookie_token) return '';
+	let ck = `ltuid_v2=${stuid};account_id_v2=${stuid};cookie_token_v2=${cookie_token};ltoken_v2=${ltoken};`;
+	if (mid) ck += `ltmid_v2=${mid};account_mid_v2=${mid};`;
+	return ck;
 }
 /**
  * 
@@ -137,5 +152,7 @@ export default {
 	redisGet,
 	redisSet,recallMsg,
 	relpyPrivate,
-	getCookieMap
+	getCookieMap,
+	getLtuid,
+	buildV2Cookie
 }

@@ -618,7 +618,8 @@ export default class user {
                         isTask: true
                     };
                     counts++;
-                    e.cookie = `stuid=${data.stuid};stoken=${data.stoken};ltoken=${data.ltoken};`;
+                    e.ck = data.ck;
+                    e.cookie = data.ck || `stuid=${data.stuid};stoken=${data.stoken};mid=${data.mid || ''};`;
                     Bot.logger.mark(`[米游币签到][第${counts}个]正在为qq${user_id}：uid:${uuId}签到中...`);
                     e.msg = "全部"
                     e.reply = (msg) => {
@@ -784,9 +785,8 @@ export default class user {
         }, false)
         if (res?.data) {
             datalist[e.uid] = {
-                stuid: map?.get("account_id"),
+                stuid: utils.getLtuid(map) || map?.get("account_id"),
                 stoken: res.data.list[0].token,
-                ltoken: res.data.list[1].token,
                 uid: e.uid,
                 userId: e.user_id,
                 is_sign: true
@@ -808,35 +808,44 @@ export default class user {
                 ck = datalist
                 gsCfg.saveBingStoken(this.e.user_id, datalist)
             }
-            return ck[this.e.uid] || {}
+            let data = ck[this.e.uid] || {}
+            if (data.stuid && data.stoken) {
+                // 只有stoken没有v2 ck时按v2格式重建，旧版ltoken字段不再可用
+                let v2 = utils.buildV2Cookie({
+                    stuid: data.stuid,
+                    mid: data.mid,
+                    ltoken: data.ltoken_v2 || (data.ltoken && /^v2_/.test(data.ltoken) ? data.ltoken : ''),
+                    cookie_token: data.cookie_token_v2,
+                })
+                if (!/ltoken_v2=/.test(data.ck || '') && v2) data.ck = v2
+            }
+            return data
         } catch (error) {
             return {}
         }
     }
 
-    async seachUid(data) {
-        let ltoken = '', v2Sk;
-        if (data?.data) {
-            let res;
-            if (this.e.sk) {
-                if (this.e.sk.get('stoken').includes('v2_')) {
-                    res = await this.getData('getLtoken', { cookies: this.e.raw_message }, false)
-                    ltoken = res?.data?.ltoken
-                } else {
-                    v2Sk = await this.getData('getByStokenV2', { headers: { Cookie: this.e.raw_message } }, false)
-                }
-                this.e.cookie =
-                    `ltoken=${this.e.sk?.get('ltoken') || ltoken};ltuid=${this.e.sk?.get('stuid')};cookie_token=${data.data.cookie_token}; account_id=${this.e.sk?.get('stuid')};`
-                // if(this.e.sk?.get('mid')){
-                // 	this.e.cookie =
-                // 		`ltoken_v2=${this.e.sk?.get('ltoken')||ltoken};cookie_token_v2=${data.data.cookie_token}; account_mid_v2=${this.e.sk.get('mid')};ltmid_v2=${this.e.sk.get('mid')}`
-                // }
-            } else {
-                this.e.cookie = this.e.original_msg //发送的为cookies
-                this.cookies = `stuid=${this.e.stuid};stoken=${data?.data?.list[0].token};ltoken=${data?.data?.list[1].token}`
-                res = await this.getData('getLtoken', { cookies: this.cookies }, false)
-                v2Sk = await this.getData('getByStokenV2', { headers: { Cookie: this.cookies } }, false)
+    async seachUid() {
+        {
+            let sk = this.e.sk || await utils.getCookieMap(this.e.raw_message || this.e.original_msg || '')
+            let stuid = utils.getLtuid(sk) || this.e.stuid
+            let stoken = sk.get('stoken')
+            if (!stoken) {
+                let loginRes = await this.getData("bbsStoken", { loginUid: stuid, loginTicket: sk.get('login_ticket') }, false)
+                stoken = loginRes?.data?.list?.[0]?.token
             }
+            let mid = sk.get('mid') || sk.get('ltmid_v2') || sk.get('account_mid_v2')
+            if (!stoken) {
+                await this.e.reply(`绑定Stoken失败：未获取到stoken\n请发送【stoken帮助】查看配置教程重新配置~`)
+                return false
+            }
+            // 统一用stoken换取v2 token，不再依赖已失效的 getCookieAccountInfoBySToken
+            let tokens = await this.getV2Tokens({ stuid, stoken, mid })
+            if (!tokens) {
+                await this.e.reply(`绑定Stoken失败：换取v2 token异常\n请发送【stoken帮助】查看配置教程重新配置~`)
+                return false
+            }
+            this.e.cookie = tokens.v2.ck
             let list = []
             for (let item of ['崩坏星穹铁道', '原神']) {
                 let result = await this.getData("userGameInfo", this.getDataList(item)[0], false)
@@ -852,10 +861,10 @@ export default class user {
                 let uid = s.game_uid
                 uids.push(s.region_name + ':' + uid)
                 datalist[uid] = {
-                    stuid: this.e?.sk?.get('stuid') || this.e.stuid,
-                    stoken: v2Sk?.data?.token?.token || this.e?.sk?.get('stoken') || data?.data?.list[0].token,
-                    ltoken: this.e?.sk?.get('ltoken') || ltoken || data?.data?.list[1].token,
-                    mid: this.e?.sk?.get('mid') || v2Sk?.data?.user_info?.mid,
+                    stuid: stuid,
+                    stoken: stoken,
+                    mid: mid || tokens.v2.mid,
+                    ck: tokens.v2.ck,
                     uid: uid,
                     userId: this.e.user_id,
                     is_sign: true,

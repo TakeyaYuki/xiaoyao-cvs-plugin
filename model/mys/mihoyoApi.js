@@ -47,14 +47,47 @@ export default class miHoYoApi {
 			// //初始化配置文件
 			let data = this.getStoken(this.e.user_id);
 			if (data) {
-				this.cookies = `stuid=${data.stuid};stoken=${data.stoken};ltoken=${data.ltoken};`;
-				if (data?.mid) {
-					this.cookies = `stuid=${data.stuid};stoken=${data.stoken};mid=${data.mid};`;
-				}
-				this.e.cookies = this.cookies
+				this.cookies = data.ck || `stuid=${data.stuid};stoken=${data.stoken};mid=${data.mid || ''};`;
 			}
 		}
 		Data.createDir("", yamlDataUrl, false);
+	}
+
+	/**
+	 * 用stoken换取v2 token（国服 exchange / 国际服 getBySToken）
+	 * @returns {Promise<{v2:object,v1:object}|false>} v2: ltoken/cookie_token/ck
+	 */
+	async getV2Tokens(data = {}) {
+		let { stuid, stoken, mid, isOs } = data
+		if (!stoken || !stuid) return false
+		let v2 = {}
+		if (isOs || String(stuid)[0] > 5) {
+			let res = await this.getData('getBySToken', { token: stoken }, false)
+			let tokens = res?.data?.tokens || []
+			v2 = {
+				ltoken: tokens.find(i => i?.name === 'ltoken_v2')?.token || tokens[0]?.token,
+				cookie_token: tokens.find(i => i?.name === 'cookie_token_v2')?.token || tokens[1]?.token,
+			}
+		} else {
+			let l = await this.getData('exchange', { token: stoken, mid, type: 2 }, false)
+			let c = await this.getData('exchange', { token: stoken, mid, type: 4 }, false)
+			v2 = {
+				ltoken: l?.data?.token?.token,
+				cookie_token: c?.data?.token?.token,
+				mid: l?.data?.user_info?.mid || c?.data?.user_info?.mid,
+				stuid: l?.data?.user_info?.aid || c?.data?.user_info?.aid,
+			}
+		}
+		let ck = utils.buildV2Cookie({
+			stuid: v2.stuid || stuid,
+			mid: mid || v2.mid,
+			ltoken: v2.ltoken,
+			cookie_token: v2.cookie_token
+		})
+		if (!ck) return false
+		v2.ck = ck
+		// 兼容旧调用方：v1.cookie_token / v1.ltoken 取自信任的v2结果
+		return { v2, v1: { cookie_token: v2.cookie_token, ltoken: v2.ltoken } }
 	}
 
 	getBody(name) {
@@ -204,10 +237,21 @@ export default class miHoYoApi {
 				},
 				types: 'bbs'
 			},
-			bbsGetCookie: {
-				url: `${this.apiMap.apiWeb}/auth/api/getCookieAccountInfoBySToken`,
-				query: `game_biz=hk4e_cn&${data.cookies}`,
-				types: ''
+			exchange: { //国服stoken换取v2 token，type=2 ltoken_v2 / type=4 cookie_token_v2
+				url: 'https://passport-api.miyoushe.com/account/ma-cn-session/app/exchange',
+				body: {
+					src_token: { token: data.token, token_type: 1 },
+					mid: data.mid,
+					dst_token_type: data.type
+				},
+				types: 'exchange'
+			},
+			getBySToken: { //国际服stoken换取v2 token，tokens[0]=ltoken_v2 tokens[1]=cookie_token_v2
+				url: 'https://passport-api-sg.hoyoverse.com/account/ma-passport/token/getBySToken?lrsag=1',
+				body: {
+					dst_token_types: [2, 4]
+				},
+				types: 'exchange'
 			},
 			bbsStoken: {
 				url: `${this.apiMap.apiWeb}/auth/api/getMultiTokenByLoginTicket`,
@@ -250,10 +294,6 @@ export default class miHoYoApi {
 					'region': this.e.region,
 				},
 				types: 'authKey'
-			},
-			getLtoken: {
-				url: `${mys.pass_api}/account/auth/api/getLTokenBySToken`,
-				query: `${data?.cookies?.replace(/;/g,'&')}`,
 			},
 			//用于手动过验证码，账号密码登录需要
 			microgg: {
@@ -510,6 +550,21 @@ export default class miHoYoApi {
 						Cookie: this.cookie,
 					}
 					break
+			case "exchange":
+				header = {
+					'x-rpc-app_id': 'bll8iq97cem8',
+					'x-rpc-client_type': '2',
+					'x-rpc-app_version': '2.44.0',
+					'x-rpc-sdk_version': '2.44.0',
+					'x-rpc-game_biz': 'bbs_cn',
+					'x-rpc-device_id': DEVICE_ID,
+					'DS': this.getDs2('', body, mys.passSalt),
+					'Content-Type': 'application/json',
+					'User-Agent': 'okhttp/4.9.3',
+					'Connection': 'Keep-Alive',
+					'Accept-Encoding': 'gzip, deflate, br',
+				}
+				break;
 			default:
 				header = {}
 				break;
