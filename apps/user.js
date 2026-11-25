@@ -12,6 +12,7 @@ import gsCfg from '../model/gsCfg.js';
 import fs from "fs";
 import YAML from 'yaml'
 import User from "../model/user.js"
+import miHoYoApi from "../model/mys/mihoyoApi.js"
 
 export const rule = {
 	userInfo: {
@@ -321,6 +322,7 @@ export async function updCookie(e) {
 		return true;
 	}
 	let user = new User(e);
+	let api = new miHoYoApi(e); //换票相关接口封装在miHoYoApi上
 	let sendMsg = [];
 	e._reply = e.reply;
 	e.reply = (msg) => {
@@ -333,7 +335,7 @@ export async function updCookie(e) {
 			Bot.logger.mark(`[刷新ck][stoken读取]qq:${e?.user_id}；uid:${e?.uid}`)
 			continue; //奇怪的东西
 		}
-		let tokens = await user.getV2Tokens({
+		let tokens = await api.getV2Tokens({
 			stuid: stoken[item].stuid,
 			stoken: stoken[item].stoken,
 			mid: stoken[item].mid,

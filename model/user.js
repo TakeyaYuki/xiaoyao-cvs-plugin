@@ -83,6 +83,12 @@ export default class user {
         return res
     }
 
+    /** 用stoken换取v2 token，封装 miHoYoApi.getV2Tokens */
+    async getV2Tokens(data = {}) {
+        this.miHoYoApi = this.miHoYoApi || new miHoYoApi(this.e)
+        return await this.miHoYoApi.getV2Tokens(data)
+    }
+
     async multiSign(forumData, isCk = false) {
         let upData = [],
             message = '';
