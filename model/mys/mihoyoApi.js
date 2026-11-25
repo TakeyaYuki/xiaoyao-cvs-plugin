@@ -58,10 +58,12 @@ export default class miHoYoApi {
 	 * @returns {Promise<{v2:object,v1:object}|false>} v2: ltoken/cookie_token/ck
 	 */
 	async getV2Tokens(data = {}) {
-		let { stuid, stoken, mid, isOs } = data
+		let { stuid, stoken, mid, isOs, region } = data
+		// 国服/国际服判定：优先按区服/入参，其次按通行证id首位
+		let hoyolab = !!isOs || /^(os_|prod_official|prod_gf_us|prod_gf_eu|prod_gf_jp|prod_gf_sg)/.test(region || '') || (!region && String(stuid)[0] > 5)
 		if (!stoken || !stuid) return false
 		let v2 = {}
-		if (isOs || String(stuid)[0] > 5) {
+		if (hoyolab) {
 			let res = await this.getData('getBySToken', { token: stoken }, false)
 			let tokens = res?.data?.tokens || []
 			v2 = {

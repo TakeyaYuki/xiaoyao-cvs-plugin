@@ -256,15 +256,14 @@ export async function bindStoken(e, uid = '') {
 	}
 	let msg = e.msg;
 	let user = new User(e);
+	let sk = await utils.getCookieMap(msg.replace(/'|"/g, ""))
 	await user.cookie(e)
 	e.uid = uid || e.uid
 	e.region = getServer(e.uid)
-	let res = await user.getData("getBySToken", { token: msg.match(/stoken=([^;]+)/)?.[1] }, false)
-	if (!res?.data) {
-		await e.reply(`绑定Stoken失败，异常：${res?.message || "换取v2 token失败"}\n请发送【stoken帮助】查看配置教程重新配置~`);
-		return true;
-	}
-	await user.seachUid({ data: res.data });
+	// 交给seachUid统一换票：国服走exchange，国际服走getBySToken
+	e.sk = sk
+	e.stuid = utils.getLtuid(sk) || e.stuid
+	await user.seachUid()
 	return true;
 }
 export async function cloudToken(e) {
@@ -339,6 +338,7 @@ export async function updCookie(e) {
 			stuid: stoken[item].stuid,
 			stoken: stoken[item].stoken,
 			mid: stoken[item].mid,
+			region: getServer(e.uid), //国服/国际服按uid判断，不依赖stuid首位
 			isOs: e.uid[0] > 5,
 		})
 		if (!tokens) {

@@ -836,17 +836,19 @@ export default class user {
             let sk = this.e.sk || await utils.getCookieMap(this.e.raw_message || this.e.original_msg || '')
             let stuid = utils.getLtuid(sk) || this.e.stuid
             let stoken = sk.get('stoken')
+            let mid = sk.get('mid') || sk.get('ltmid_v2') || sk.get('account_mid_v2')
             if (!stoken) {
                 let loginRes = await this.getData("bbsStoken", { loginUid: stuid, loginTicket: sk.get('login_ticket') }, false)
                 stoken = loginRes?.data?.list?.[0]?.token
             }
-            let mid = sk.get('mid') || sk.get('ltmid_v2') || sk.get('account_mid_v2')
             if (!stoken) {
                 await this.e.reply(`绑定Stoken失败：未获取到stoken\n请发送【stoken帮助】查看配置教程重新配置~`)
                 return false
             }
-            // 统一用stoken换取v2 token，不再依赖已失效的 getCookieAccountInfoBySToken
-            let tokens = await this.getV2Tokens({ stuid, stoken, mid })
+            this.e.stuid = stuid
+            this.e.region = this.e.region || (String(this.e.uid || '')[0] > 5 ? 'os_usa' : 'cn_gf01')
+            // 先换票拿到可直接使用的v2 ck（国服exchange / 国际服getBySToken）
+            let tokens = await this.getV2Tokens({ stuid, stoken, mid, region: this.e.region, isOs: this.e.isOs })
             if (!tokens) {
                 await this.e.reply(`绑定Stoken失败：换取v2 token异常\n请发送【stoken帮助】查看配置教程重新配置~`)
                 return false
